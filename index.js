@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require("cors");
 require('dotenv').config();
 const usersRoutes = require("./routes/users.js")
+const uploadRoutes = require("./routes/uploadRoutes.js")
 // import usersRoutes from "./routes/users.js";
 const firebase = require("./firebase.js"); // make sure Firebase initializes before routes
 
@@ -9,11 +10,18 @@ const firebase = require("./firebase.js"); // make sure Firebase initializes bef
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-app.use(cors())
+// ✅ allow your frontend origin
+app.use(cors({
+  origin: ["http://localhost:5174"], // replace with your frontend URL
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true,
+}));
+
 app.use(express.json());
 
 // Routes
 app.use("/users", usersRoutes);
+app.use("/api", uploadRoutes);
 
 // Health check
 app.get("/", (req, res) => res.send("✅ StartIQ backend running..."));
