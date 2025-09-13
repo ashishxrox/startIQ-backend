@@ -24,10 +24,14 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Invalid role provided" });
     }
 
-    // Generate a unique startup ID (only for founders/startups)
-    const startupID = role.toLowerCase() === "founder" || role.toLowerCase() === "startup" 
-      ? uuidv4()
-      : null;
+    // Generate startupID only for founders/startups
+    let profileData = data || {};
+    if (role.toLowerCase() === "founder" || role.toLowerCase() === "startup") {
+      profileData = {
+        ...profileData,
+        startupID: uuidv4(), // ✅ now inside profile
+      };
+    }
 
     // Save into the correct collection
     await db.collection(collectionName).doc(uid).set({
