@@ -11,11 +11,17 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // ✅ allow your frontend origin
-app.use(cors({
-  origin: ["http://localhost:5174"], // replace with your frontend URL
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5174",           // local dev
+      "https://startiq.netlify.app",     // deployed frontend
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+
 
 app.use(express.json());
 
