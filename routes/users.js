@@ -41,6 +41,7 @@ router.post("/register", async (req, res) => {
     });
 
     console.log(`✅ User saved to ${collectionName}:`, uid);
+    const startupID = profile.startupID
 
     res.status(200).json({ 
       message: `User registered in ${collectionName} successfully!`, 
