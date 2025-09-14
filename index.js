@@ -3,6 +3,7 @@ const cors = require("cors");
 require('dotenv').config();
 const usersRoutes = require("./routes/users.js")
 const uploadRoutes = require("./routes/uploadRoutes.js")
+const anaylse = require('./routes/analyse.js')
 // import usersRoutes from "./routes/users.js";
 const firebase = require("./firebase.js"); // make sure Firebase initializes before routes
 
@@ -28,6 +29,7 @@ app.use(express.json());
 // Routes
 app.use("/users", usersRoutes);
 app.use("/api", uploadRoutes);
+app.use("/intell", anaylse)
 
 // Health check
 app.get("/", (req, res) => res.send("✅ StartIQ backend running..."));
