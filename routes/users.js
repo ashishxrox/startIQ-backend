@@ -36,16 +36,15 @@ router.post("/register", async (req, res) => {
     // Save into the correct collection
     await db.collection(collectionName).doc(uid).set({
       role,
-      profile: data,
+      profile: profileData,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     console.log(`✅ User saved to ${collectionName}:`, uid);
-    const startupID = profile.startupID
 
     res.status(200).json({ 
       message: `User registered in ${collectionName} successfully!`, 
-      startupID 
+      startupID: profileData.startupID || null, // ✅ return startupID if exists
     });
   } catch (error) {
     console.error("❌ Error registering user:", error);
