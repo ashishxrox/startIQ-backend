@@ -4,7 +4,8 @@ const router = express.Router();
 const { db, admin } = require("../firebase"); // ✅ adjust path to your firebase config
 const { Timestamp } = require("firebase-admin/firestore");
 const { analyzeWithGemma } = require("../services/llmService");
-const { extractFlags } = require("../services/flagService");
+const { extractRedFlags, extractGreenFlags } = require("../services/flagService");
+const { scoreStartup } = require("../services/scoringService")
 
 
 // Helper to build a prompt from DB data (if you prefer dynamic prompts)
@@ -55,97 +56,122 @@ Be exhaustive, structured, and professional. Avoid generic advice—base your an
 }
 
 router.post("/analyse-with-ai", async (req, res) => {
-  try {
-    const { startupID } = req.body;
-    if (!startupID) {
-      return res.status(400).json({ error: "startupID is required" });
-    }
-
-    const aiDocRef = db.collection("AIInsights").doc(startupID);
-    const aiDoc = await aiDocRef.get();
-
-    // -------------------------------
-    // 🔍 CASE 1: Insight already exists
-    // -------------------------------
-    if (aiDoc.exists) {
-      const aiData = aiDoc.data();
-      const createdAt = aiData.createdAt?.toDate?.() || aiData.createdAt;
-      const now = new Date();
-      const diffDays = createdAt
-        ? (now - createdAt) / (1000 * 60 * 60 * 24)
-        : Infinity;
-
-      // ✅ If insights are still fresh (< 7 days)
-      if (diffDays < 7) {
-        let redFlags = aiData.redFlags || [];
-
-        // ⚠️ Generate redFlags only if missing
-        if (!redFlags.length) {
-          redFlags = await extractFlags(aiData.insights);
-
-          // update only redFlags, keep original createdAt
-          await aiDocRef.update({ redFlags });
+    try {
+        const { startupID } = req.body;
+        if (!startupID) {
+            return res.status(400).json({ error: "startupID is required" });
         }
 
-        return res.status(200).json({
-          success: true,
-          startupID,
-          insights: aiData.insights,
-          redFlags,
-          cached: true,
+        const aiDocRef = db.collection("AIInsights").doc(startupID);
+        const aiDoc = await aiDocRef.get();
+
+        // -------------------------------
+        // 🔍 CASE 1: Insight already exists
+        // -------------------------------
+        if (aiDoc.exists) {
+            const aiData = aiDoc.data();
+            const createdAt = aiData.createdAt?.toDate?.() || aiData.createdAt;
+            const now = new Date();
+            const diffDays = createdAt
+                ? (now - createdAt) / (1000 * 60 * 60 * 24)
+                : Infinity;
+
+            // ✅ If insights are still fresh (< 7 days)
+            if (diffDays < 7) {
+                let redFlags = aiData.redFlags || [];
+                let greenFlags = aiData.greenFlags || [];
+                let score = aiData.score || 0;
+
+                // ⚠️ Generate redFlags only if missing
+                if (!redFlags.length) {
+                    redFlags = await extractRedFlags(aiData.insights);
+
+                    // update only redFlags, keep original createdAt
+                    await aiDocRef.update({ redFlags });
+                }
+
+                // ⚠️ Generate greenFlags only if missing
+                if (!greenFlags.length) {
+                    greenFlags = await extractGreenFlags(aiData.insights);
+
+                    // update only greenFlags, keep original createdAt
+                    await aiDocRef.update({ greenFlags });
+                }
+
+                if(!score){
+                    score =  await scoreStartup(aiData.insights, redFlags, greenFlags)
+
+                    await aiDocRef.update({score})
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    startupID,
+                    insights: aiData.insights,
+                    redFlags,
+                    greenFlags,
+                    score,
+                    createdAt,
+                    cached: true,
+                });
+            }
+        }
+
+        // -------------------------------
+        // 🔍 CASE 2: Generate fresh insights & redFlags
+        // -------------------------------
+
+        // Step 1: Get founder info
+        const founderSnapshot = await db
+            .collection("founders")
+            .where("profile.startupID", "==", startupID)
+            .limit(1)
+            .get();
+
+        if (founderSnapshot.empty) {
+            return res.status(404).json({ error: "Startup not found" });
+        }
+
+        const founderData = founderSnapshot.docs[0].data();
+
+        // Step 2: Get related documents
+        const docsSnapshot = await db.collection("documents").doc(startupID).get();
+        const documentsData = docsSnapshot.exists ? docsSnapshot.data() : {};
+
+        // Step 3: Build AI prompt
+        const promptToSend = buildPromptFromData(founderData, documentsData);
+
+        // Step 4: Generate new insights
+        const insights = await analyzeWithGemma(promptToSend);
+
+        // Step 5: Generate redFlags
+        const redFlags = await extractRedFlags(insights);
+        const greenFlags = await extractGreenFlags(insights);
+        const score = await scoreStartup(insights, redFlags, greenFlags)
+
+        // Step 6: Save fresh insights & redFlags, greenFlags
+        await aiDocRef.set({
+            insights,
+            redFlags,
+            greenFlags,
+            score,
+            createdAt: Timestamp.now(),
         });
-      }
+
+        // Step 7: Respond
+        res.status(200).json({
+            success: true,
+            startupID,
+            insights,
+            redFlags,
+            greenFlags,
+            score,
+            cached: false,
+        });
+    } catch (error) {
+        console.error("❌ Error in /analyse-with-ai:", error);
+        res.status(500).json({ error: "Failed to analyze startup" });
     }
-
-    // -------------------------------
-    // 🔍 CASE 2: Generate fresh insights & redFlags
-    // -------------------------------
-
-    // Step 1: Get founder info
-    const founderSnapshot = await db
-      .collection("founders")
-      .where("profile.startupID", "==", startupID)
-      .limit(1)
-      .get();
-
-    if (founderSnapshot.empty) {
-      return res.status(404).json({ error: "Startup not found" });
-    }
-
-    const founderData = founderSnapshot.docs[0].data();
-
-    // Step 2: Get related documents
-    const docsSnapshot = await db.collection("documents").doc(startupID).get();
-    const documentsData = docsSnapshot.exists ? docsSnapshot.data() : {};
-
-    // Step 3: Build AI prompt
-    const promptToSend = buildPromptFromData(founderData, documentsData);
-
-    // Step 4: Generate new insights
-    const insights = await analyzeWithGemma(promptToSend);
-
-    // Step 5: Generate redFlags
-    const redFlags = await extractFlags(insights);
-
-    // Step 6: Save fresh insights & redFlags
-    await aiDocRef.set({
-      insights,
-      redFlags,
-      createdAt: Timestamp.now(),
-    });
-
-    // Step 7: Respond
-    res.status(200).json({
-      success: true,
-      startupID,
-      insights,
-      redFlags,
-      cached: false,
-    });
-  } catch (error) {
-    console.error("❌ Error in /analyse-with-ai:", error);
-    res.status(500).json({ error: "Failed to analyze startup" });
-  }
 });
 
 module.exports = router;
