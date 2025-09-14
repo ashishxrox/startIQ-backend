@@ -36,8 +36,7 @@ router.post("/register", async (req, res) => {
     // Save into the correct collection
     await db.collection(collectionName).doc(uid).set({
       role,
-      startupID, // ✅ store UUID here
-      profile: data || {},
+      profile: data,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
