@@ -114,28 +114,58 @@ router.post("/check-role", async (req, res) => {
 });
 
 
-// ---------- GET ALL STARTUPS ----------
+// ---------- GET ALL STARTUPS WITH PAGINATION ----------
 router.get("/all-startups", async (req, res) => {
   try {
-    const snapshot = await db.collection("founders").get();
+    // Query params: page size and cursor (last startup doc id)
+    const { limit = 10, cursor = null } = req.query;
 
-    if (snapshot.empty) {
-      return res.status(200).json([]);
+    // Step 1: fetch startupIDs from "documents" collection
+    const docsSnapshot = await db.collection("documents").get();
+    const validStartupIDs = docsSnapshot.docs.map((doc) => doc.id); 
+    // assuming each document.id == startupID
+
+    if (validStartupIDs.length === 0) {
+      return res.status(200).json({ startups: [], nextCursor: null, totalCount: 0 });
     }
 
+    // Step 2: query founders with pagination
+    let queryRef = db.collection("founders").orderBy("createdAt", "desc").limit(Number(limit));
+
+    if (cursor) {
+      // cursor is the last doc id from previous page
+      const lastDoc = await db.collection("founders").doc(cursor).get();
+      if (lastDoc.exists) {
+        queryRef = queryRef.startAfter(lastDoc);
+      }
+    }
+
+    const snapshot = await queryRef.get();
+
+    if (snapshot.empty) {
+      return res.status(200).json({ startups: [], nextCursor: null, totalCount: validStartupIDs.length });
+    }
+
+    // Step 3: collect startups whose startupID exists in documents
     const startups = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
-      console.log(data.profile)
-      startups.push({
-        uid: doc.id,
-        startupName: data.profile?.startupName || "",
-        founderName: data.profile?.founderName || "",
-        startupID: data.profile?.startupID || ""
-      });
+      if (data.profile?.startupID && validStartupIDs.includes(data.profile.startupID)) {
+        startups.push({
+          uid: doc.id,
+          startupName: data.profile?.startupName || "",
+          founderName: data.profile?.founderName || "",
+          startupID: data.profile?.startupID || "",
+        });
+      }
     });
 
-    res.status(200).json(startups);
+    // Step 4: next cursor (for frontend to fetch next page)
+    const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+    const nextCursor = lastVisible ? lastVisible.id : null;
+
+    // Step 5: return response including totalCount
+    res.status(200).json({ startups, nextCursor, totalCount: validStartupIDs.length });
   } catch (error) {
     console.error("❌ Error fetching startups:", error);
     res.status(500).json({ error: "Internal server error" });
