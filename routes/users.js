@@ -71,18 +71,26 @@ router.post("/check-role", async (req, res) => {
     if (uid) {
       const founderDoc = await db.collection("founders").doc(uid).get();
       if (founderDoc.exists) {
+        const startupDoc = await db.collection("documents").doc(startupID).get();
+        let youtubeLink = null;
+        if (startupDoc.exists) {
+          youtubeLink = startupDoc.data().ytLink || null;
+        }
         return res.status(200).json({
           role: "founder",
           profile: founderDoc.data().profile || {},
           startupID: founderDoc.data().startupID || null,
+          ytLink: youtubeLink
         });
       }
 
       const investorDoc = await db.collection("investors").doc(uid).get();
       if (investorDoc.exists) {
+        
         return res.status(200).json({
           role: "investor",
           profile: investorDoc.data().profile || {},
+
         });
       }
     }
@@ -96,11 +104,21 @@ router.post("/check-role", async (req, res) => {
         .get();
 
       if (!founderQuery.empty) {
+        
         const doc = founderQuery.docs[0];
+
+         // 🔹 Fetch youtubeLink from startups collection
+        let youtubeLink = null;
+        const startupDoc = await db.collection("documents").doc(startupID).get();
+        if (startupDoc.exists) {
+          youtubeLink = startupDoc.data().ytLink || null;
+        }
+
         return res.status(200).json({
           role: "founder",
           profile: doc.data().profile || {},
           startupID: doc.data().startupID,
+          ytLink: youtubeLink
         });
       }
     }
