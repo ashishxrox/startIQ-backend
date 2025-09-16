@@ -71,7 +71,7 @@ router.post("/check-role", async (req, res) => {
     if (uid) {
       const founderDoc = await db.collection("founders").doc(uid).get();
       if (founderDoc.exists) {
-        const startupDoc = await db.collection("documents").doc(startupID).get();
+        const startupDoc = await db.collection("documents").doc(uid).get();
         let youtubeLink = null;
         if (startupDoc.exists) {
           youtubeLink = startupDoc.data().ytLink || null;
