@@ -4,6 +4,7 @@ require('dotenv').config();
 const usersRoutes = require("./routes/users.js")
 const uploadRoutes = require("./routes/uploadRoutes.js")
 const anaylse = require('./routes/analyse.js')
+const analyseInvestor = require('./routes/analyseInvestor.js')
 // import usersRoutes from "./routes/users.js";
 const firebase = require("./firebase.js"); // make sure Firebase initializes before routes
 
@@ -30,6 +31,7 @@ app.use(express.json());
 app.use("/users", usersRoutes);
 app.use("/api", uploadRoutes);
 app.use("/intell", anaylse)
+app.use('/intell/investor', analyseInvestor)
 
 // Health check
 app.get("/", (req, res) => res.send("✅ StartIQ backend running..."));
