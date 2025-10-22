@@ -88,7 +88,8 @@ router.post("/check-role", async (req, res) => {
         return res.status(200).json({
           role: "investor",
           profile: investorDoc.data().profile || {},
-
+          favourites: investorDoc.data().favorites || {},
+          dealNotes: investorDoc.data().dealNotes || {}
         });
       }
     }
