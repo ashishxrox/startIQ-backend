@@ -7,38 +7,42 @@ const anaylse = require('./routes/analyse.js')
 const analyseInvestor = require('./routes/analyseInvestor.js')
 const investor = require('./routes/investorRoutes.js')
 // import usersRoutes from "./routes/users.js";
-const firebase = require("./firebase.js"); // make sure Firebase initializes before routes
-
+console.log("🟢 Importing Firebase...");
+const firebase = require("./firebase.js");
+console.log("✅ Firebase initialized");
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// ✅ allow your frontend origin
+console.log("🚀 Setting up middlewares...");
+app.use(express.json());
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",           // local dev
-      "https://startiq.netlify.app",     // deployed frontend
+      "http://localhost:5173",
+      "https://startiq.netlify.app",
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
 );
-
-
-app.use(express.json());
+console.log("✅ Middlewares ready");
 
 // Routes
+console.log("🛣️ Registering routes...");
 app.use("/users", usersRoutes);
 app.use("/api", uploadRoutes);
-app.use("/intell", anaylse)
-app.use('/intell/investor', analyseInvestor)
-app.use('/investor', investor)
+app.use("/intell", anaylse);
+app.use("/intell/investor", analyseInvestor);
+app.use("/investor", investor);
+console.log("✅ Routes registered");
 
 // Health check
-app.get("/", (req, res) => res.send("✅ StartIQ backend running..."));
+app.get("/", (req, res) => {
+  console.log("💬 Health check route hit!");
+  res.send("✅ StartIQ backend running...");
+});
 
-
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });

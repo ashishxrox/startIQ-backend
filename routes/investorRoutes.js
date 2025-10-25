@@ -1,5 +1,6 @@
 const express = require("express");
 const { db, admin } = require("../firebase.js");
+const { timeSince } = require("../utils/timeUtils.js")
 
 const router = express.Router();
 
@@ -150,6 +151,97 @@ router.get("/deal-notes/:investorID", async (req, res) => {
   }
 });
 
+// ---------- ROUTE: Get investor profile data ----------
+router.get("/:investorID", async (req, res) => {
+  try {
+    const { investorID } = req.params;
 
+    const investorRef = db.collection("investors").doc(investorID);
+    const doc = await investorRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Investor not found" });
+    }
+
+    const profile = doc.data().profile || {};
+
+    // structure data for frontend clarity
+    const investorData = {
+      investorName: profile.investorName || "",
+      contactNumber: profile.contactNumber || "",
+      email: profile.email || "",
+      individualAngelInvestor: profile.individualAngelInvestor || "",
+      investmentIdeology: profile.investmentIdeology || "",
+      preferredSectors: profile.preferredSectors || "",
+      ticketSizeRange: profile.ticketSizeRange || "",
+      location: profile.location || ""
+    };
+
+    res.json(investorData);
+  } catch (error) {
+    console.error("❌ Error fetching investor data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ---------- ROUTE: Get Updates of favourites ----------
+router.get("/notifications/:investorID", async (req, res) => {
+  try {
+    const { investorID } = req.params;
+
+    // 1️⃣ Get investor's favourites
+    const investorDoc = await db.collection("investors").doc(investorID).get();
+    if (!investorDoc.exists) return res.status(404).json({ error: "Investor not found" });
+
+    const favourites = investorDoc.data().favorites || [];
+    if (favourites.length === 0) return res.json([]); // no favourites
+
+    // 2️⃣ Map startupID => startupName
+    const startupDocs = await db.collection("founders").get();
+    const startupMap = {};
+    startupDocs.forEach(doc => {
+      const profile = doc.data().profile || {};
+      if (profile.startupID && profile.startupName) {
+        startupMap[profile.startupID] = profile.startupName;
+      }
+    });
+
+    // 3️⃣ Fetch updates for favourite startups
+    let allUpdates = [];
+    for (const startupID of favourites) {
+      const doc = await db.collection("startup_updates").doc(startupID).get();
+      if (doc.exists) {
+        const startupUpdates = doc.data().updates || [];
+        startupUpdates.forEach(update => {
+          allUpdates.push({
+            startupID,
+            message: update.updateContent || "",
+            createdAt: update.dateCreated || null
+          });
+        });
+      }
+    }
+
+    // 4️⃣ Sort updates by createdAt descending
+    allUpdates.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
+
+    // 5️⃣ Keep only top 10 most recent updates
+    const topUpdates = allUpdates.slice(0, 10);
+
+    // 5️⃣ Normalize to notifications format
+    const notifications = topUpdates.map((update, index) => ({
+      id: index + 1,
+      startupName: startupMap[update.startupID] || "Unknown Startup",
+      message: update.message,
+      time: update.createdAt ? timeSince(update.createdAt.toDate()) : ""
+    }));
+
+    res.json(notifications);
+
+  } catch (error) {
+    console.error("❌ Error fetching notifications:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 module.exports = router;
