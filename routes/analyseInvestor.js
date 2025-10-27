@@ -5,10 +5,11 @@ const { db, admin } = require("../firebase");
 const { Timestamp } = require("firebase-admin/firestore");
 const { generateDealNote } = require("../services/dealNoteService")
 const { analyzeWithGemma } = require("../services/llmService");
+const { scoreInvestor } = require('../services/investorScoringService')
 
 // 🧩 Helper: Build prompt for Investor
 function buildInvestorPrompt(investorData = {}) {
-    return `
+  return `
 You are an investment analyst evaluating an investor.
 Your task is to provide a structured, detailed, and balanced critique of the investor based on the data provided.
 Focus on investment strategy, sector focus, track record, risk appetite, portfolio style, and alignment with founders.
@@ -49,63 +50,67 @@ Be exhaustive, structured, and professional. Avoid generic advice—base your an
 // 🧩 Analyse Investor
 // ----------------------
 router.post("/analyse-investor", async (req, res) => {
-    try {
-        const { investorID } = req.body;
-        if (!investorID) {
-            return res.status(400).json({ error: "investorID is required" });
-        }
-
-        const aiDocRef = db.collection("InvestorInsights").doc(investorID);
-        const aiDoc = await aiDocRef.get();
-
-        // CASE 1: Cached Insights (fresh < 7 days)
-        if (aiDoc.exists) {
-            const aiData = aiDoc.data();
-            const createdAt = aiData.createdAt?.toDate?.() || aiData.createdAt;
-            const now = new Date();
-            const diffDays = createdAt
-                ? (now - createdAt) / (1000 * 60 * 60 * 24)
-                : Infinity;
-
-            if (diffDays < 7) {
-                return res.status(200).json({
-                    success: true,
-                    investorID,
-                    insights: aiData.insights,
-                    createdAt,
-                    cached: true,
-                });
-            }
-        }
-
-        // CASE 2: Generate fresh insights
-        const investorDoc = await db.collection("investors").doc(investorID).get();
-        if (!investorDoc.exists) {
-            return res.status(404).json({ error: "Investor not found" });
-        }
-
-        const investorData = investorDoc.data();
-        const promptToSend = buildInvestorPrompt(investorData);
-
-        // 🔮 Call LLM
-        const insights = await analyzeWithGemma(promptToSend);
-
-        // Save fresh insights
-        await aiDocRef.set({
-            insights,
-            createdAt: Timestamp.now(),
-        });
-
-        res.status(200).json({
-            success: true,
-            investorID,
-            insights,
-            cached: false,
-        });
-    } catch (error) {
-        console.error("❌ Error in /analyse-investor:", error);
-        res.status(500).json({ error: "Failed to analyze investor" });
+  try {
+    const { investorID } = req.body;
+    if (!investorID) {
+      return res.status(400).json({ error: "investorID is required" });
     }
+
+    const aiDocRef = db.collection("InvestorInsights").doc(investorID);
+    const aiDoc = await aiDocRef.get();
+
+    // CASE 1: Cached Insights (fresh < 7 days)
+    if (aiDoc.exists) {
+      const aiData = aiDoc.data();
+      const createdAt = aiData.createdAt?.toDate?.() || aiData.createdAt;
+      const now = new Date();
+      const diffDays = createdAt
+        ? (now - createdAt) / (1000 * 60 * 60 * 24)
+        : Infinity;
+
+      if (diffDays < 7) {
+        return res.status(200).json({
+          success: true,
+          investorID,
+          score: aiData.score,
+          insights: aiData.insights,
+          createdAt,
+          cached: true,
+        });
+      }
+    }
+
+    // CASE 2: Generate fresh insights
+    const investorDoc = await db.collection("investors").doc(investorID).get();
+    if (!investorDoc.exists) {
+      return res.status(404).json({ error: "Investor not found" });
+    }
+
+    const investorData = investorDoc.data();
+    const promptToSend = buildInvestorPrompt(investorData);
+
+    // 🔮 Call LLM
+    const insights = await analyzeWithGemma(promptToSend);
+    const score = await scoreInvestor(insights)
+
+      // Save fresh insights
+      await aiDocRef.set({
+        insights,
+        score,
+        createdAt: Timestamp.now(),
+      });
+
+    res.status(200).json({
+      success: true,
+      investorID,
+      insights,
+      score,
+      cached: false,
+    });
+  } catch (error) {
+    console.error("❌ Error in /analyse-investor:", error);
+    res.status(500).json({ error: "Failed to analyze investor" });
+  }
 });
 
 router.post("/generate-deal-note", async (req, res) => {
@@ -167,7 +172,7 @@ router.post("/generate-deal-note", async (req, res) => {
       return res.status(404).json({ error: "Startup insights not found" });
     }
     const startupData = startupDoc.data();
-    
+
     const startupInsights = startupData.insights;
 
     // 🔹 Generate deal note with LLM

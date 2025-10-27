@@ -110,46 +110,90 @@ router.get("/deal-notes/:investorID", async (req, res) => {
     const investorData = investorDoc.data();
     const dealNotesMap = investorData.dealNotes || {};
 
-    const formattedDealNotes = await Promise.all(
-      Object.entries(dealNotesMap).map(async ([startupId, noteObj]) => {
-        let startupName = "Unknown Startup";
+    // 2️⃣ Define constants
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
 
-        // Query founders collection to get startupName
-        const foundersQuery = await db
-          .collection("founders")
-          .where("profile.startupID", "==", startupId) // match key with profile.startupID
-          .limit(1)
-          .get();
+    const validDealNotes = {};
+    const formattedDealNotes = [];
+    let oldestNoteTime = null;
 
-        if (!foundersQuery.empty) {
-          const founderData = foundersQuery.docs[0].data();
-          startupName = founderData.profile?.startupName || startupName;
-        }
+    // 3️⃣ Loop through deal notes
+    for (const [startupId, noteObj] of Object.entries(dealNotesMap)) {
+      const createdAtMs = noteObj.createdAt?._seconds
+        ? noteObj.createdAt._seconds * 1000
+        : null;
 
-        // Format createdAt timestamp
-        let dateGenerated = "Unknown Date";
-        if (noteObj.createdAt?._seconds) {
-          dateGenerated = new Date(noteObj.createdAt._seconds * 1000).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          });
-        }
+      // Skip expired ones
+      if (!createdAtMs || createdAtMs < sevenDaysAgo) continue;
 
-        return {
-          startupName,
-          verdict: noteObj.note?.toLowerCase() || "consider",
-          dateGenerated,
-        };
-      })
-    );
+      // Keep track of oldest active note
+      if (!oldestNoteTime || createdAtMs < oldestNoteTime) {
+        oldestNoteTime = createdAtMs;
+      }
 
-    res.json(formattedDealNotes);
+      // Keep valid notes
+      validDealNotes[startupId] = noteObj;
+
+      // Fetch startup name
+      let startupName = "Unknown Startup";
+      const foundersQuery = await db
+        .collection("founders")
+        .where("profile.startupID", "==", startupId)
+        .limit(1)
+        .get();
+
+      if (!foundersQuery.empty) {
+        const founderData = foundersQuery.docs[0].data();
+        startupName = founderData.profile?.startupName || startupName;
+      }
+
+      // Format date
+      const dateGenerated = new Date(createdAtMs).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      formattedDealNotes.push({
+        startupName,
+        verdict: noteObj.note?.toLowerCase() || "consider",
+        dateGenerated,
+      });
+    }
+
+    // 4️⃣ Auto-remove expired ones
+    if (Object.keys(validDealNotes).length !== Object.keys(dealNotesMap).length) {
+      await investorRef.update({ dealNotes: validDealNotes });
+    }
+
+    // 5️⃣ Calculate remaining notes and reset timer
+    const totalActive = Object.keys(validDealNotes).length;
+    const remainingNotes = Math.max(5 - totalActive, 0);
+
+    let daysUntilReset = 0;
+    if (oldestNoteTime) {
+      const resetDate = oldestNoteTime + 7 * 24 * 60 * 60 * 1000;
+      const msLeft = resetDate - now;
+      daysUntilReset = Math.max(Math.ceil(msLeft / (24 * 60 * 60 * 1000)), 0);
+    }
+
+    const canCreateMore = remainingNotes > 0;
+
+    // 6️⃣ Respond with all info
+    res.json({
+      canCreateMore,
+      totalActive,
+      remainingNotes,
+      daysUntilReset,
+      dealNotes: formattedDealNotes,
+    });
   } catch (error) {
-    console.error("Error fetching deal notes:", error);
+    console.error("❌ Error fetching deal notes:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
+
 
 // ---------- ROUTE: Get investor profile data ----------
 router.get("/:investorID", async (req, res) => {
